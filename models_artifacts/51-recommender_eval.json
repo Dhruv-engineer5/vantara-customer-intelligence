@@ -1,0 +1,9 @@
+{
+  "method": "item-item cosine co-purchase, fitted on train customers",
+  "k": 10,
+  "test_buyers_evaluated": 342,
+  "hit_rate_at_10": 0.348,
+  "popularity_baseline_hit_rate_at_10": 0.2632,
+  "products_in_model": 3792,
+  "note": "offline sanity check on the 90 days after the cutoff; no live A/B test"
+}
