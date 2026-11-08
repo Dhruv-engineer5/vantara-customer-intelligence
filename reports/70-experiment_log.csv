@@ -1,0 +1,50 @@
+task,model,split,roc_auc,recall,precision,f1,accuracy,r2,mae,rmse,tn,fp,fn,tp,train_seconds,params
+churn,logistic_regression,val,0.8012,0.7691,0.7605,0.7648,0.7319,,,,233,108,103,343,0.79,"{'clf__penalty': 'l2', 'clf__C': 10.0, 'cv_mean': 0.8045, 'cv_std': 0.0175, 'cv_folds': 5}"
+churn,logistic_regression,test,0.7901,0.7668,0.7583,0.7625,0.7297,,,,233,109,104,342,0.79,"{'clf__penalty': 'l2', 'clf__C': 10.0, 'cv_mean': 0.8045, 'cv_std': 0.0175, 'cv_folds': 5}"
+churn,decision_tree,val,0.7769,0.8094,0.749,0.778,0.7382,,,,220,121,85,361,0.88,"{'min_samples_leaf': 10, 'max_depth': 3, 'cv_mean': 0.7799, 'cv_std': 0.0155, 'cv_folds': 5}"
+churn,decision_tree,test,0.7525,0.7825,0.7426,0.762,0.7234,,,,221,121,97,349,0.88,"{'min_samples_leaf': 10, 'max_depth': 3, 'cv_mean': 0.7799, 'cv_std': 0.0155, 'cv_folds': 5}"
+churn,random_forest,val,0.8075,0.8117,0.7589,0.7844,0.7471,,,,226,115,84,362,28.31,"{'n_estimators': 400, 'min_samples_leaf': 10, 'max_depth': 6, 'cv_mean': 0.8105, 'cv_std': 0.0135, 'cv_folds': 5}"
+churn,random_forest,test,0.7896,0.7825,0.7603,0.7713,0.7373,,,,232,110,97,349,28.31,"{'n_estimators': 400, 'min_samples_leaf': 10, 'max_depth': 6, 'cv_mean': 0.8105, 'cv_std': 0.0135, 'cv_folds': 5}"
+churn,xgboost,val,0.8113,0.778,0.7643,0.7711,0.7382,,,,234,107,99,347,7.77,"{'subsample': 0.7, 'max_depth': 4, 'learning_rate': 0.05, 'colsample_bytree': 0.9, 'n_estimators_early_stopped': 84, 'cv_mean': 0.7969, 'cv_std': 0.0106, 'cv_folds': 5}"
+churn,xgboost,test,0.786,0.7646,0.7646,0.7646,0.7335,,,,237,105,105,341,7.77,"{'subsample': 0.7, 'max_depth': 4, 'learning_rate': 0.05, 'colsample_bytree': 0.9, 'n_estimators_early_stopped': 84, 'cv_mean': 0.7969, 'cv_std': 0.0106, 'cv_folds': 5}"
+churn,lightgbm,val,0.8008,0.7803,0.7468,0.7632,0.7255,,,,223,118,98,348,6.8,"{'subsample': 0.7, 'num_leaves': 15, 'learning_rate': 0.03, 'colsample_bytree': 0.7, 'cv_mean': 0.7992, 'cv_std': 0.0115, 'cv_folds': 5}"
+churn,lightgbm,test,0.7774,0.7601,0.7451,0.7525,0.717,,,,226,116,107,339,6.8,"{'subsample': 0.7, 'num_leaves': 15, 'learning_rate': 0.03, 'colsample_bytree': 0.7, 'cv_mean': 0.7992, 'cv_std': 0.0115, 'cv_folds': 5}"
+churn,knn,val,0.7901,0.8206,0.7276,0.7713,0.7243,,,,204,137,80,366,0.27,"{'clf__n_neighbors': 51, 'cv_mean': 0.7982, 'cv_std': 0.0087, 'cv_folds': 5}"
+churn,knn,test,0.7781,0.7848,0.7368,0.76,0.7195,,,,217,125,96,350,0.27,"{'clf__n_neighbors': 51, 'cv_mean': 0.7982, 'cv_std': 0.0087, 'cv_folds': 5}"
+churn,ann,val,0.8042,0.7691,0.7538,0.7614,0.7268,,,,229,112,103,343,0.79,"{'hidden': [64, 32], 'cv_mean': 0.8056, 'cv_std': 0.0125, 'cv_folds': 5}"
+churn,ann,test,0.7869,0.7578,0.763,0.7604,0.7297,,,,237,105,108,338,0.79,"{'hidden': [64, 32], 'cv_mean': 0.8056, 'cv_std': 0.0125, 'cv_folds': 5}"
+churn,lstm,val,0.7626,0.7668,0.75,0.7583,0.723,,,,227,114,104,342,2.35,"{'hidden': 32, 'seq_len': 8, 'cv_mean': 0.7592, 'cv_std': 0.0143, 'cv_folds': 5}"
+churn,lstm,test,0.7395,0.7242,0.7258,0.725,0.6891,,,,220,122,123,323,2.35,"{'hidden': 32, 'seq_len': 8, 'cv_mean': 0.7592, 'cv_std': 0.0143, 'cv_folds': 5}"
+timing30,static_lgbm,val,0.775,0.5517,0.4615,0.5026,0.7586,,,,501,112,78,96,2.13,{}
+timing30,static_lgbm,test,0.7811,0.5844,0.4348,0.4986,0.7703,,,,517,117,64,90,2.13,{}
+timing30,lstm_sequence,val,0.7695,0.7126,0.412,0.5221,0.7116,,,,436,177,50,124,2.13,{}
+timing30,lstm_sequence,test,0.7401,0.6883,0.3533,0.467,0.6929,,,,440,194,48,106,2.13,{}
+timing30,average,val,0.7867,0.6207,0.4576,0.5268,0.7535,,,,485,128,66,108,2.13,{}
+timing30,average,test,0.7782,0.6234,0.4103,0.4948,0.7513,,,,496,138,58,96,2.13,{}
+timing_days,static_lgbm,val,,,,,,0.072,19.4826,24.6366,,,,,3.31,{}
+timing_days,static_lgbm,test,,,,,,0.159,20.5732,25.4763,,,,,3.31,{}
+timing_days,lstm_sequence,val,,,,,,0.0909,19.9283,25.0281,,,,,3.31,{}
+timing_days,lstm_sequence,test,,,,,,0.0973,21.9774,27.3296,,,,,3.31,{}
+timing_days,average,val,,,,,,0.1091,19.4765,24.5214,,,,,3.31,{}
+timing_days,average,test,,,,,,0.1546,21.1585,26.1841,,,,,3.31,{}
+timing_days,train_median_baseline,val,,,,,,-0.0703,20.6741,24.3736,,,,,3.31,{}
+timing_days,train_median_baseline,test,,,,,,-0.0362,22.2031,26.2698,,,,,3.31,{}
+next_category,static_lgbm,val,,,,0.2123,0.4516,,,,,,,,1.74,{}
+next_category,static_lgbm,test,,,,0.2344,0.4708,,,,,,,,1.74,{}
+next_category,lstm_sequence,val,,,,0.1862,0.4516,,,,,,,,1.74,{}
+next_category,lstm_sequence,test,,,,0.236,0.5029,,,,,,,,1.74,{}
+next_category,average,val,,,,0.2183,0.4721,,,,,,,,1.74,{}
+next_category,average,test,,,,0.2533,0.4971,,,,,,,,1.74,{}
+timing30,static_lgbm,cv,,,,,,,,,,,,,0.0,"{'metric': 'ROC-AUC', 'cv_mean': 0.7782, 'cv_std': 0.023, 'cv_folds': 5}"
+timing30,lstm_sequence,cv,,,,,,,,,,,,,0.0,"{'metric': 'ROC-AUC', 'cv_mean': 0.7578, 'cv_std': 0.0115, 'cv_folds': 5}"
+timing_days,static_lgbm,cv,,,,,,,,,,,,,0.0,"{'metric': 'MAE days', 'cv_mean': 20.736, 'cv_std': 0.7643, 'cv_folds': 5}"
+timing_days,lstm_sequence,cv,,,,,,,,,,,,,0.0,"{'metric': 'MAE days', 'cv_mean': 21.3301, 'cv_std': 1.0641, 'cv_folds': 5}"
+next_category,static_lgbm,cv,,,,,,,,,,,,,0.0,"{'metric': 'accuracy', 'cv_mean': 0.4473, 'cv_std': 0.018, 'cv_folds': 5}"
+next_category,lstm_sequence,cv,,,,,,,,,,,,,0.0,"{'metric': 'accuracy', 'cv_mean': 0.4567, 'cv_std': 0.0184, 'cv_folds': 5}"
+anomaly,autoencoder,test,,,,,,,,,,,,,1.73,"{'threshold': 0.159, 'flag_rate_test': 0.0076}"
+clv,ridge,val,,,,,,0.7704,446.5464,2074.0115,,,,,0.08,"{'reg__alpha': 100.0, 'cv_mean': 0.3378, 'cv_std': 0.0247, 'cv_folds': 5}"
+clv,ridge,test,,,,,,0.4146,422.199,2751.6836,,,,,0.08,"{'reg__alpha': 100.0, 'cv_mean': 0.3378, 'cv_std': 0.0247, 'cv_folds': 5}"
+clv,random_forest_reg,val,,,,,,0.2343,476.774,3787.3954,,,,,113.33,"{'n_estimators': 400, 'min_samples_leaf': 3, 'max_depth': 6, 'cv_mean': 0.3483, 'cv_std': 0.0211, 'cv_folds': 5}"
+clv,random_forest_reg,test,,,,,,0.4631,396.2929,2635.4113,,,,,113.33,"{'n_estimators': 400, 'min_samples_leaf': 3, 'max_depth': 6, 'cv_mean': 0.3483, 'cv_std': 0.0211, 'cv_folds': 5}"
+clv,xgboost_reg,val,,,,,,0.1177,493.0759,4065.7449,,,,,9.26,"{'subsample': 0.9, 'max_depth': 3, 'learning_rate': 0.1, 'colsample_bytree': 0.7, 'cv_mean': 0.3267, 'cv_std': 0.0302, 'cv_folds': 5}"
+clv,xgboost_reg,test,,,,,,0.4057,416.0178,2772.5825,,,,,9.26,"{'subsample': 0.9, 'max_depth': 3, 'learning_rate': 0.1, 'colsample_bytree': 0.7, 'cv_mean': 0.3267, 'cv_std': 0.0302, 'cv_folds': 5}"

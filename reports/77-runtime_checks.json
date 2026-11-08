@@ -1,0 +1,20 @@
+{
+  "api_single_prediction": {
+    "api_url": "http://localhost:8000",
+    "requests": 200,
+    "p50_ms": 6.1,
+    "p95_ms": 6.6,
+    "max_ms": 9.8,
+    "note": "client-observed latency including HTTP, SHAP explanation, model scoring and segment assignment"
+  },
+  "dashboard_segment_view_load_seconds": {
+    "loads_s": [
+      2.248,
+      1.715,
+      1.81,
+      1.773
+    ],
+    "first_is_cold_api_cache": true,
+    "note": "page load to both charts rendered, headless Chrome on the build machine, API on localhost"
+  }
+}

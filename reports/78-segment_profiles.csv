@@ -1,0 +1,4 @@
+segment_id,segment_name,recency_days,frequency,monetary_total,avg_basket_size,return_rate,engagement_score,churn,future_spend,customers
+0,Fading regulars,182.704,3.632,1247.738,258.516,0.027,52.954,0.563,256.588,2180
+1,Champions,42.963,16.02,8365.5,275.081,0.028,83.814,0.201,1590.696,1208
+2,Lapsed one-timers,338.802,1.415,264.017,112.921,0.02,23.285,0.806,94.488,1860

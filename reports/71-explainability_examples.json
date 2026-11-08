@@ -1,0 +1,45 @@
+{
+  "low_risk": {
+    "customer_id": 14667,
+    "probability": 0.02807234786450863,
+    "explanation": "Churn risk is low (3%) mainly because this customer has an engagement score of 98/100 (lowers risk); has not bought for 2 days (lowers risk); spent 3,276 in the last 180 days (lowers risk)."
+  },
+  "high_risk": {
+    "customer_id": 14743,
+    "probability": 0.9525119662284851,
+    "explanation": "Churn risk is high (95%) mainly because this customer has an engagement score of 8/100 (raises risk); has not bought for 500 days (raises risk); buys 0% of items from the other category (raises risk)."
+  },
+  "borderline": {
+    "customer_id": 15276,
+    "probability": 0.500023365020752,
+    "explanation": "Churn risk is moderate (50%) mainly because this customer has an order-frequency trend of -0.10/month (lowers risk); has bought 115 different products (lowers risk); has not bought for 302 days (raises risk)."
+  },
+  "lime_vs_shap": {
+    "customer_id": 15276,
+    "lime_top": [
+      "country_eire <= 0.00",
+      "freq_trend <= -0.03",
+      "spend_last_180d <= 0.00",
+      "157.00 < recency_days <= 321.00",
+      "n_unique_products > 92.00"
+    ],
+    "shap_top": [
+      "freq_trend",
+      "n_unique_products",
+      "recency_days",
+      "spend_last_180d",
+      "engagement_score"
+    ],
+    "features_in_both": [
+      "freq_trend",
+      "n_unique_products",
+      "recency_days",
+      "spend_last_180d"
+    ]
+  },
+  "top3_features": [
+    "engagement_score",
+    "recency_days",
+    "spend_last_180d"
+  ]
+}
