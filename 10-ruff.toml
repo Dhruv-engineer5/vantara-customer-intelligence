@@ -1,0 +1,10 @@
+line-length = 120
+[lint]
+select = ["E", "F", "W", "D100", "D101", "D102", "D103", "D104"]
+ignore = ["E402", "E731"]
+
+[lint.per-file-ignores]
+"tests/*" = ["D"]
+"src/report/readme_tables.py" = ["E501"]
+"src/report/final_report.py" = ["E501"]
+"notebooks/*.ipynb" = ["E702", "E402", "E501", "F401"]

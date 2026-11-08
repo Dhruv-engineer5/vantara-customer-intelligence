@@ -1,0 +1,9 @@
+.venv
+.git
+__pycache__
+data/raw
+data/interim
+docs/screens
+.coverage
+htmlcov
+.env
