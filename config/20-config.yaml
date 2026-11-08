@@ -1,0 +1,95 @@
+# All paths, hyperparameters and thresholds live here (brief Sec 13).
+seed: 42
+paths:
+  raw_xlsx: data/raw/online_retail_II.xlsx
+  interim_rule_cleaned: data/interim/transactions_rule_cleaned.parquet
+  interim_transactions: data/interim/transactions_clean.parquet
+  reference_stats: models_artifacts/reference_stats.joblib
+  interim_rejects: data/interim/cleaning_report.json
+  features: data/processed/customer_features.parquet
+  sequences: data/processed/sequences.npz
+  scores: data/processed/customer_scores.parquet
+  segments: data/processed/customer_segments.parquet
+  invoices: data/processed/invoices.parquet
+  artifacts: models_artifacts
+  reports: reports
+data:
+  uci_id: 502
+  sheets: ["Year 2009-2010", "Year 2010-2011"]
+  expected_min_date: "2009-12-01"
+  expected_max_date: "2011-12-10"
+  max_null_rate_customer_in_customer_table: 0.0
+  # null-rate thresholds enforced on the raw combined table (fraction of rows); the pipeline fails loudly above them
+  max_null_rate_raw:
+    invoice: 0.0
+    stock_code: 0.0
+    quantity: 0.0
+    price: 0.0
+    invoice_date: 0.0
+    country: 0.0
+    description: 0.02
+    customer_id: 0.30     # the source has ~23% anonymous lines, which cleaning removes
+  non_product_stockcodes: ["POST", "D", "DOT", "M", "BANK CHARGES", "CRUK", "C2", "PADS", "AMAZONFEE", "S", "B", "ADJUST", "ADJUST2", "TEST001", "TEST002", "GIFT"]
+cleaning:
+  outlier_iqr_k: 3.0
+  price_error_floor: 1000      # prices above IQR bound AND at/above this are treated as entry errors
+  bulk_quantity_floor: 1000     # quantities above IQR bound but below this are kept as bulk buys
+features:
+  cutoff_date: "2011-09-09"     # features use data strictly before this date
+  churn_horizon_days: 90        # label window: [cutoff, cutoff + 90d)
+  sequence_length: 8
+  discount_price_ratio: 0.9     # a line priced below this share of the product's training median counts as discounted
+  niche_max_customers: 5        # a product bought by fewer training customers than this counts as niche
+  recent_windows_days: [30, 90, 180]   # must contain 90 (recent_share_90d)
+  trend_window_days: 360        # frequency-trend window (12 monthly buckets of 30 days)
+  country_groups: ["United Kingdom", "EIRE", "Germany", "France"]
+split:
+  train: 0.70
+  val: 0.15
+  test: 0.15
+models:
+  cv_folds: 5
+  n_iter_search: 6
+  logreg: {C: [0.1, 1.0, 10.0], penalty: ["l1", "l2"]}
+  decision_tree: {max_depth: [3, 5, 8], min_samples_leaf: [10, 30]}
+  random_forest: {n_estimators: [200, 400], max_depth: [6, 10, null], min_samples_leaf: [2, 5, 10]}
+  xgboost: {learning_rate: [0.03, 0.05, 0.1], max_depth: [3, 4, 6], subsample: [0.7, 0.9], colsample_bytree: [0.7, 0.9]}
+  lightgbm: {learning_rate: [0.03, 0.05, 0.1], num_leaves: [15, 31], subsample: [0.7, 0.9], colsample_bytree: [0.7, 0.9]}
+  knn: {n_neighbors: [15, 31, 51]}
+  deep:
+    epochs: 150
+    patience: 12
+    lr: 0.001
+    batch_size: 128
+    dropout: 0.3
+    l2: 0.0001               # L2 penalty (Adam weight decay) for the ANN and LSTM
+    l1: 0.00001              # L1 penalty added to the training loss on weight matrices
+    hidden: [64, 32]
+    lstm_hidden: 32
+    ae_latent: 4
+    anomaly_percentile: 99
+targets:
+  churn_auc: 0.80
+  clv_r2: 0.60
+  churn_recall: 0.70
+  api_p95_ms: 400
+  dashboard_load_s: 3
+risk:
+  high_churn: 0.7               # churn probability at or above this is "high" risk
+  moderate_churn: 0.4
+recommender:
+  min_customers_per_product: 5
+  neighbors: 30
+segmentation:
+  recent_days: 90               # segment naming: recency at or below this counts as recent
+  k_range: [2, 8]
+  gmm_components: 4
+  dbscan_eps_quantile: 0.9
+  dbscan_min_samples: 10
+database:
+  url_env: DATABASE_URL
+  default_url: ""   # no credentials in version control: set DATABASE_URL (see .env.example) or run scripts/setup_env.py
+api:
+  url_env: API_URL
+  default_url: http://localhost:8000
+  log_level_env: LOG_LEVEL
