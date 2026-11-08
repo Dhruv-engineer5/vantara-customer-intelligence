@@ -1,0 +1,48 @@
+..............................................................           [100%]
+================================ tests coverage ================================
+_______________ coverage: platform linux, python 3.10.12-final-0 _______________
+
+Name                             Stmts   Miss  Cover
+----------------------------------------------------
+api/__init__.py                      0      0   100%
+api/deps.py                         68      1    99%
+api/main.py                         30      3    90%
+api/routers/__init__.py              0      0   100%
+api/routers/analytics.py            44      2    95%
+api/routers/customers.py            94     10    89%
+api/routers/predict.py             103      6    94%
+api/schemas/__init__.py              0      0   100%
+api/schemas/models.py               27      0   100%
+src/__init__.py                      0      0   100%
+src/data/__init__.py                 0      0   100%
+src/data/clean.py                   45     12    73%
+src/data/load.py                    43     31    28%
+src/data/reference.py               39      3    92%
+src/data/validate.py                33      4    88%
+src/db/__init__.py                   0      0   100%
+src/db/models.py                    57      0   100%
+src/db/session.py                  119     24    80%
+src/explainability/__init__.py       0      0   100%
+src/explainability/explain.py      140      5    96%
+src/features/__init__.py             0      0   100%
+src/features/build.py              188     46    76%
+src/models/__init__.py               0      0   100%
+src/models/classical.py             52      0   100%
+src/models/common.py                49      0   100%
+src/models/deep.py                 129      7    95%
+src/models/train.py                258      1    99%
+src/pipeline.py                     29     29     0%
+src/recommend/__init__.py            0      0   100%
+src/recommend/recommender.py        80     31    61%
+src/report/__init__.py               0      0   100%
+src/report/diagrams.py              88     88     0%
+src/report/final_report.py         117    117     0%
+src/report/readme_tables.py         34     34     0%
+src/segmentation/__init__.py         0      0   100%
+src/segmentation/cluster.py        118      2    98%
+src/utils/__init__.py                0      0   100%
+src/utils/config.py                 37     18    51%
+src/utils/logging_setup.py           9      1    89%
+----------------------------------------------------
+TOTAL                             2030    475    77%
+62 passed
