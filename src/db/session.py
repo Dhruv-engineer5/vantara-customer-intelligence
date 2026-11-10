@@ -23,9 +23,17 @@ from src.utils.logging_setup import get_logger
 log = get_logger(__name__)
 
 
-def make_engine(url: str, retries: int = 30, wait: float = 2.0) -> Engine:
-    """Create an engine and wait until the database accepts connections."""
-    engine = create_engine(url, pool_pre_ping=True, future=True)
+def make_engine(url: str, retries: int = 12, wait: float = 2.5, connect_timeout: float = 6.0) -> Engine:
+    """Create an engine and wait until the database accepts connections.
+
+    connect_timeout bounds each attempt: without it a single wedged
+    connection (e.g. to a pooler whose compute is waking) can hang the
+    whole process forever and the service never binds its port.
+    """
+    kwargs: dict[str, Any] = {"pool_pre_ping": True, "future": True}
+    if url.startswith("postgresql"):
+        kwargs["connect_args"] = {"connect_timeout": int(connect_timeout)}
+    engine = create_engine(url, **kwargs)
     for attempt in range(retries):
         try:
             with engine.connect() as c:
