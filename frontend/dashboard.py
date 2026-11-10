@@ -64,14 +64,19 @@ st.caption(
 if not api_up():
     with st.spinner(
         "Waking up the backend. Free hosting sleeps after inactivity, "
-        "so the first load can take about a minute. No need to refresh."
+        "so the first load can take from under a minute to several minutes. "
+        "No need to refresh."
     ):
         ready = wait_for_api()
     if ready:
         st.rerun()
     st.error(
         f"The API at {API} is still not reachable after a few minutes. "
-        "It may be restarting; press Retry or reload the page shortly."
+        "It may still be waking up; press Retry to keep waiting, or reload the page shortly."
+    )
+    st.link_button(
+        "Open the API wake-up page in a new tab, then come back and press Retry",
+        f"{API}/health",
     )
     if st.button("Retry"):
         st.rerun()
