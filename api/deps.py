@@ -17,6 +17,9 @@ from src.features.build import FEATURE_COLUMNS
 from src.models.ae_serve import NumpyAutoEncoder, recon_error
 from src.data.reference import load_reference
 from src.utils.config import database_url, load_config, rpath
+from src.utils.logging_setup import get_logger
+
+log = get_logger(__name__)
 
 
 @dataclass
@@ -41,16 +44,20 @@ class State:
 
 def load_state(engine: Engine | None = None) -> State:
     """Load config, models and (optionally) connect + seed the database."""
+    log.info("startup: load_state begin")
     cfg = load_config()
     art = Path(rpath(cfg, "artifacts"))
     if engine is None:
         engine = make_engine(database_url(cfg))
+    log.info("startup: engine ready")
     seed_if_empty(engine, cfg)
+    log.info("startup: seed complete, loading artifacts")
     churn = joblib.load(art / "churn_model.joblib")
     meta = json.loads((art / "metadata.json").read_text())
     table = pd.read_parquet(rpath(cfg, "features"))
     ae_meta = joblib.load(art / "autoencoder_meta.joblib")
     ae = NumpyAutoEncoder(art / "autoencoder_weights.json")
+    log.info("startup: artifacts loaded")
     return State(
         cfg=cfg,
         engine=engine,
