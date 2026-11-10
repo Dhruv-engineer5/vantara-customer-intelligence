@@ -128,8 +128,11 @@ customers. The deployment image installs `requirements-deploy.txt`
 
 The deployed app can run multi-user on top of Supabase Auth (free tier):
 
-- Sign-up/login with email + password, email confirmation required. Supabase
-  manages passwords and sessions; the app never stores or logs them.
+- Sign-in is GitHub OAuth (PKCE flow). Supabase manages identity and sessions;
+  the app never sees GitHub passwords. Email + password exists in code but is
+  hidden until real email delivery is configured (Supabase's built-in SMTP only
+  mails project team members); enable for controlled tests with
+  `EMAIL_AUTH_ENABLED=true`.
 - Each user gets a private workspace: customers, uploads, segments and
   analytics are stored with that user's id and are invisible to other users.
   The API enforces ownership on every route (queries filter by the caller's
@@ -148,7 +151,9 @@ test-only shared secret exists solely for the automated test suite and is
 inert whenever `SUPABASE_URL` is configured.
 
 Required environment variables (API + dashboard): `SUPABASE_URL`,
-`SUPABASE_ANON_KEY`, `SUPABASE_JWT_AUD` (default `authenticated`).
+`SUPABASE_ANON_KEY`, `SUPABASE_JWT_AUD` (default `authenticated`), and for the
+dashboard `DASHBOARD_URL` (its own public URL, used as the OAuth redirect
+target; register it under Supabase Auth > URL Configuration).
 The dashboard also uses the anon key client-side for the Supabase JS auth
 flow. Without these variables the app runs in the original single-user demo
 mode.
