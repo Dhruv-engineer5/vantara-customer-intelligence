@@ -15,18 +15,57 @@ import streamlit as st
 API = os.environ.get("API_URL", "http://localhost:8000").rstrip("/")
 st.set_page_config(page_title="Vantara Customer Intelligence", layout="wide")
 
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
+SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
+AUTH_ON = bool(SUPABASE_URL and SUPABASE_ANON_KEY)
+
+
+def _sb(path: str, payload: dict) -> requests.Response:
+    """Call the Supabase Auth (GoTrue) REST endpoint."""
+    return requests.post(
+        f"{SUPABASE_URL}/auth/v1/{path}", json=payload, headers={"apikey": SUPABASE_ANON_KEY}, timeout=30
+    )
+
+
+def _store_session(data: dict, email: str) -> None:
+    st.session_state.sb = {
+        "access_token": data["access_token"],
+        "refresh_token": data["refresh_token"],
+        "expires_at": time.time() + int(data.get("expires_in", 3600)) - 60,
+        "email": email,
+    }
+
+
+def current_token() -> str | None:
+    """A valid access token for the signed-in user, refreshing it when close to expiry."""
+    sb = st.session_state.get("sb")
+    if not sb:
+        return None
+    if time.time() > sb["expires_at"]:
+        r = _sb("token?grant_type=refresh_token", {"refresh_token": sb["refresh_token"]})
+        if r.status_code == 200:
+            _store_session(r.json(), sb["email"])
+        else:
+            del st.session_state.sb
+            return None
+    return st.session_state.sb["access_token"]
+
 
 @st.cache_data(ttl=300, show_spinner=False)
-def get(path: str, **params: Any) -> Any:
+def get(path: str, _token: str | None = None, _dataset: str = "sample", **params: Any) -> Any:
     """GET JSON from the API (cached 5 minutes so views load fast).
 
-    Retries brief failures: the free API caps concurrent requests and
-    answers the excess with 503 instead of queueing them.
+    _token authorizes access to a private workspace; _dataset selects it. Both are part of
+    the cache key, so one user's data is never served from another user's cache entry.
+    Retries brief failures: the free API caps concurrent requests and answers the excess
+    with 503 instead of queueing them.
     """
+    headers = {"Authorization": f"Bearer {_token}"} if _token else {}
+    params = {**params, "dataset": _dataset}
     last: requests.RequestException | None = None
     for attempt in range(4):
         try:
-            r = requests.get(f"{API}{path}", params=params, timeout=30)
+            r = requests.get(f"{API}{path}", params=params, headers=headers, timeout=30)
             if r.status_code == 503:
                 raise requests.HTTPError("API busy (503)", response=r)
             r.raise_for_status()
@@ -36,6 +75,12 @@ def get(path: str, **params: Any) -> Any:
             time.sleep(1.5 * (attempt + 1))
     assert last is not None
     raise last
+
+
+def api_get(path: str, **params: Any) -> requests.Response:
+    """Uncached GET against the current workspace (for one-shot interactions)."""
+    headers = {"Authorization": f"Bearer {TOKEN}"} if TOKEN else {}
+    return requests.get(f"{API}{path}", params={**params, "dataset": DS}, headers=headers, timeout=120)
 
 
 def api_up(timeout: float = 5) -> bool:
@@ -77,14 +122,63 @@ if not api_up():
         st.rerun()
     st.stop()
 
+st.sidebar.title("Account")
+if not AUTH_ON:
+    st.sidebar.caption("Sign-in is not configured on this deployment.")
+elif "sb" not in st.session_state:
+    with st.sidebar.form("signin"):
+        email = st.text_input("Email")
+        password = st.text_input("Password", type="password")
+        in_, up_ = st.columns(2)
+        do_in = in_.form_submit_button("Sign in")
+        do_up = up_.form_submit_button("Create account")
+    if do_in or do_up:
+        if not email or len(password) < 8:
+            st.sidebar.error("Enter an email and a password of at least 8 characters.")
+        else:
+            r = _sb("token?grant_type=password", {"email": email, "password": password}) if do_in else _sb(
+                "signup", {"email": email, "password": password}
+            )
+            if r.status_code == 200 and r.json().get("access_token"):
+                _store_session(r.json(), email)
+                st.rerun()
+            elif do_up and r.status_code == 200:
+                st.sidebar.success("Account created. Check your email to confirm it, then sign in.")
+            else:
+                st.sidebar.error(r.json().get("msg") or r.json().get("error_description") or "Sign-in failed.")
+else:
+    st.sidebar.write(f"Signed in as **{st.session_state.sb['email']}**")
+    if st.sidebar.button("Sign out"):
+        del st.session_state.sb
+        st.cache_data.clear()
+        st.rerun()
+
+TOKEN = current_token()
+workspaces = {"Sample (public demo)": "sample"}
+if TOKEN:
+    try:
+        for d in get("/datasets", _token=TOKEN, _dataset="sample"):
+            if d["status"] == "ready":
+                workspaces[f"{d['name']} ({d['n_customers']:,} customers)"] = d["dataset_id"]
+    except Exception:  # noqa: BLE001
+        st.sidebar.warning("Could not load your datasets right now.")
+DS = workspaces[st.sidebar.selectbox("Workspace", list(workspaces))]
+if DS != "sample":
+    st.sidebar.caption(
+        "Your private workspace. Scores come from the demo models trained on the public UK retail sample "
+        "(2009-2011); treat them as illustrative, not as business advice."
+    )
+
 view = st.sidebar.radio(
-    "View", ["Segments", "Churn leaderboard", "Revenue trends", "Customer explanation", "Batch scoring", "Model report"]
+    "View",
+    ["Segments", "Churn leaderboard", "Revenue trends", "Customer explanation", "Batch scoring", "Model report"]
+    + (["My data"] if TOKEN else []),
 )
 
 if view == "Segments":
     st.subheader("Customer segments")
     c1, c2, c3 = st.columns(3)
-    customers = pd.DataFrame(get("/customers", limit=6000))
+    customers = pd.DataFrame(get("/customers", _token=TOKEN, _dataset=DS, limit=6000))
     seg_names = sorted(customers["segment_name"].unique())
     f_seg = c1.multiselect("Segment", seg_names, default=seg_names)
     f_country = c2.multiselect("Country", sorted(customers["country"].unique()))
@@ -126,18 +220,19 @@ if view == "Segments":
             ),
             use_container_width=True,
         )
-    prof = pd.DataFrame(get("/segments"))
+    prof = pd.DataFrame(get("/segments", _token=TOKEN, _dataset=DS))
     st.markdown("**Segment profiles**")
     st.dataframe(prof.drop(columns=["segment_id"]).round(2), use_container_width=True, hide_index=True)
-    st.caption(
-        "predicted_* columns are model outputs. observed_* columns are what actually happened in the 90 days after the "
-        "cutoff, shown for model evaluation only; they would not be known when scoring a live customer."
-    )
+    if DS == "sample":
+        st.caption(
+            "predicted_* columns are model outputs. observed_* columns are what actually happened in the 90 days "
+            "after the cutoff, shown for model evaluation only; they would not be known when scoring a live customer."
+        )
 
 elif view == "Churn leaderboard":
     st.subheader("Who to call first: biggest value at risk")
     n = st.slider("Customers to show", 10, 100, 25)
-    lb = pd.DataFrame(get("/customers/leaderboard", n=n))
+    lb = pd.DataFrame(get("/customers/leaderboard", _token=TOKEN, _dataset=DS, n=n))
     st.dataframe(
         lb[
             [
@@ -161,7 +256,7 @@ elif view == "Churn leaderboard":
 
 elif view == "Revenue trends":
     st.subheader("Monthly revenue with a simple forecast")
-    t = get("/revenue/trend")
+    t = get("/revenue/trend", _token=TOKEN, _dataset=DS)
     h = pd.DataFrame(t["history"]).assign(kind="actual")
     f = pd.DataFrame(t["forecast"]).assign(kind="forecast")
     st.plotly_chart(
@@ -171,14 +266,17 @@ elif view == "Revenue trends":
 
 elif view == "Customer explanation":
     st.subheader("Why is this customer flagged?")
-    cid = st.number_input("Customer ID", min_value=0, value=12347, step=1)
-    if st.button("Explain"):
-        r = requests.get(f"{API}/customers/{int(cid)}", timeout=30)
+    if DS == "sample":
+        cid = str(st.number_input("Customer ID", min_value=0, value=12347, step=1))
+    else:
+        cid = st.text_input("Customer ID", value="", help="Copy an ID from the Segments or leaderboard view.").strip()
+    if st.button("Explain") and cid:
+        r = api_get(f"/customers/{cid}")
         if r.status_code == 404:
-            st.warning("No customer with that ID. Try 12347, 12348, 12349 or any ID from the leaderboard.")
+            st.warning("No customer with that ID in this workspace. Copy one from the leaderboard.")
         else:
             cust = r.json()
-            ex = requests.get(f"{API}/customers/{int(cid)}/explain", timeout=60).json()
+            ex = api_get(f"/customers/{cid}/explain").json()
             a, p_, b, c = st.columns(4)
             a.metric(
                 "Churn probability",
@@ -217,7 +315,7 @@ elif view == "Customer explanation":
                 ),
                 use_container_width=True,
             )
-            lm = requests.get(f"{API}/customers/{int(cid)}/explain/lime", timeout=120).json()
+            lm = api_get(f"/customers/{cid}/explain/lime").json()
             lf = pd.DataFrame(lm["lime_factors"])
             st.plotly_chart(
                 px.bar(
@@ -233,12 +331,17 @@ elif view == "Customer explanation":
                 f"SHAP top 5: {', '.join(lm['shap_top5'])}. Features that appear in both SHAP's and LIME's top 5: "
                 f"{', '.join(lm['agree_with_shap_top5']) or 'none'}."
             )
-            rec = requests.get(f"{API}/customers/{int(cid)}/recommendations", params={"n": 5}, timeout=30)
+            rec = api_get(f"/customers/{cid}/recommendations", n=5)
             if rec.status_code == 200:
                 st.markdown("**Recommended products** (based on what similar customers also bought)")
                 st.dataframe(pd.DataFrame(rec.json()["recommendations"]), hide_index=True, use_container_width=True)
             if cust["data_split"] == "train":
                 st.caption("This customer was in the model's training data, so its score is an in-sample score.")
+            elif cust["data_split"] == "user":
+                st.caption(
+                    "Scored by the demo models trained on the public UK retail sample, applied to your data. "
+                    "Treat the scores as illustrative."
+                )
 
 elif view == "Batch scoring":
     st.subheader("Score a CSV")
@@ -268,6 +371,55 @@ elif view == "Batch scoring":
                 "scores.pdf",
                 "application/pdf",
             )
+
+elif view == "My data":
+    st.subheader("Your private datasets")
+    st.write(
+        "Upload a transaction CSV with the same columns as the sample data: "
+        "`Invoice, StockCode, Description, Quantity, InvoiceDate, Price, Customer ID, Country`. "
+        "Only you can see what you upload. Limits: 5 MB / 50,000 rows per file, at least 20 customers and "
+        "30 days of history, up to 3 datasets per account."
+    )
+    with st.form("upload"):
+        nm = st.text_input("Dataset name", value="My dataset")
+        up = st.file_uploader("Transactions CSV", type="csv")
+        go = st.form_submit_button("Upload and score")
+    if go and up is not None:
+        headers = {"Authorization": f"Bearer {TOKEN}"}
+        with st.spinner("Cleaning, scoring and storing your data. This can take a minute on the free tier."):
+            r = requests.post(
+                f"{API}/datasets",
+                files={"file": (up.name, up.getvalue(), "text/csv")},
+                data={"name": nm},
+                headers=headers,
+                timeout=600,
+            )
+        if r.status_code == 201:
+            st.cache_data.clear()
+            d = r.json()["dataset"]
+            st.success(
+                f"Ready: {d['n_customers']:,} customers from {d['n_rows']:,} rows "
+                f"({d['first_date']} to {d['last_date']}). Pick it in the Workspace selector on the left."
+            )
+        else:
+            st.error(r.json().get("detail", r.text))
+    st.markdown("**Your datasets**")
+    try:
+        mine = get("/datasets", _token=TOKEN, _dataset="sample")
+    except Exception as exc:  # noqa: BLE001
+        mine = []
+        st.warning(f"Could not load your datasets: {exc}")
+    for d in mine:
+        c1, c2, c3 = st.columns([4, 2, 1])
+        label = d["name"] if d["status"] == "ready" else f"{d['name']} ({d['status']}: {d.get('error') or ''})"
+        c1.write(label)
+        c2.write(f"{d['n_customers']:,} customers" if d["status"] == "ready" else "-")
+        if c3.button("Delete", key=f"del_{d['dataset_id']}"):
+            requests.delete(
+                f"{API}/datasets/{d['dataset_id']}", headers={"Authorization": f"Bearer {TOKEN}"}, timeout=30
+            )
+            st.cache_data.clear()
+            st.rerun()
 
 else:
     st.subheader("Model report")

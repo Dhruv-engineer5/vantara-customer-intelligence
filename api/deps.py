@@ -15,6 +15,7 @@ from src.db.session import make_engine, seed_if_empty
 from src.explainability.explain import make_explainer, make_lime
 from src.features.build import FEATURE_COLUMNS
 from src.models.ae_serve import NumpyAutoEncoder, recon_error
+from src.data.reference import load_reference
 from src.utils.config import database_url, load_config, rpath
 
 
@@ -35,6 +36,7 @@ class State:
     seg: dict = field(default_factory=dict)
     lime: object = None
     recommender: dict = field(default_factory=dict)
+    ref: dict = field(default_factory=dict)
 
 
 def load_state(engine: Engine | None = None) -> State:
@@ -63,6 +65,7 @@ def load_state(engine: Engine | None = None) -> State:
         seg=joblib.load(art / "segmentation.joblib"),
         recommender=joblib.load(art / "recommender.joblib") if (art / "recommender.joblib").exists() else {},
         lime=make_lime(table.loc[table["data_split"] == "train", FEATURE_COLUMNS].to_numpy(dtype=float), cfg["seed"]),
+        ref=load_reference(Path(rpath(cfg, "reference_stats"))),
     )
 
 

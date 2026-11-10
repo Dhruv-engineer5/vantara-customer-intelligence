@@ -75,13 +75,30 @@ def model_metadata(request: Request) -> dict:
 
 
 @router.get("/revenue/trend")
-def revenue_trend(request: Request, forecast_months: int = 3) -> dict:
+def revenue_trend(request: Request, forecast_months: int = 3, dataset: str = "sample") -> dict:
     """Monthly net revenue from invoices plus a simple linear-trend forecast overlay."""
+    from api.tenant import resolve
+
+    ctx = resolve(request, dataset)
     with request.app.state.s.engine.connect() as c:
-        df = pd.read_sql(text("SELECT invoice_date, amount FROM transactions"), c)
+        if ctx.sample:
+            df = pd.read_sql(text("SELECT invoice_date, amount FROM transactions"), c)
+        else:
+            df = pd.read_sql(
+                text("SELECT invoice_date, amount FROM user_transactions WHERE dataset_id = :ds"),
+                c,
+                params={"ds": ctx.dataset_id},
+            )
     df["month"] = pd.to_datetime(df["invoice_date"]).dt.to_period("M").dt.to_timestamp()
     m = df.groupby("month")["amount"].sum().sort_index()
-    m = m.iloc[:-1] if len(m) > 1 else m  # last month is partial in the source data
+    if ctx.sample:
+        m = m.iloc[:-1] if len(m) > 1 else m  # last month is partial in the source data
+    if len(m) < 2:
+        return {
+            "history": [{"month": d.strftime("%Y-%m"), "revenue": round(float(v), 2)} for d, v in m.items()],
+            "forecast": [],
+            "method": "not enough history for a trend overlay (need at least two months)",
+        }
     y = m.tail(12).to_numpy()
     x = np.arange(len(y))
     slope, icpt = np.polyfit(x, y, 1)

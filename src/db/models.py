@@ -88,3 +88,72 @@ class PredictionHistory(Base):
     data_split: Mapped[str] = mapped_column(String(8))
     model_name: Mapped[str] = mapped_column(String(32))
     scored_at: Mapped[datetime] = mapped_column(DateTime)
+
+
+class UserDataset(Base):
+    """One uploaded workspace owned by a signed-in user (Supabase Auth user UUID)."""
+
+    __tablename__ = "user_datasets"
+    dataset_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(64), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    status: Mapped[str] = mapped_column(String(16))  # processing | ready | failed
+    error: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    n_rows: Mapped[int] = mapped_column(Integer, default=0)
+    n_customers: Mapped[int] = mapped_column(Integer, default=0)
+    first_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+    recommender: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+
+class UserCustomer(Base):
+    """One row per modelled customer in a user's uploaded dataset."""
+
+    __tablename__ = "user_customers"
+    dataset_id: Mapped[str] = mapped_column(ForeignKey("user_datasets.dataset_id"), primary_key=True)
+    customer_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    country: Mapped[str] = mapped_column(String(64))
+    recency_days: Mapped[float] = mapped_column(Float)
+    frequency: Mapped[float] = mapped_column(Float)
+    monetary_total: Mapped[float] = mapped_column(Float)
+    clv_historical: Mapped[float] = mapped_column(Float)
+    engagement_score: Mapped[float] = mapped_column(Float)
+    features: Mapped[dict] = mapped_column(JSON)
+
+
+class UserPrediction(Base):
+    """Stored model scores for one customer in a user's dataset."""
+
+    __tablename__ = "user_predictions"
+    dataset_id: Mapped[str] = mapped_column(ForeignKey("user_datasets.dataset_id"), primary_key=True)
+    customer_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    churn_probability: Mapped[float] = mapped_column(Float, index=True)
+    clv_predicted: Mapped[float] = mapped_column(Float)
+    is_anomaly: Mapped[bool] = mapped_column(Boolean)
+    model_name: Mapped[str] = mapped_column(String(32))
+    scored_at: Mapped[datetime] = mapped_column(DateTime)
+
+
+class UserSegment(Base):
+    """K-Means segment assignment for one customer in a user's dataset."""
+
+    __tablename__ = "user_segments"
+    dataset_id: Mapped[str] = mapped_column(ForeignKey("user_datasets.dataset_id"), primary_key=True)
+    customer_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    segment_id: Mapped[int] = mapped_column(Integer)
+    segment_name: Mapped[str] = mapped_column(String(48))
+
+
+class UserTransaction(Base):
+    """Invoice-level rows of a user's uploaded dataset (powers the revenue trend view)."""
+
+    __tablename__ = "user_transactions"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    dataset_id: Mapped[str] = mapped_column(ForeignKey("user_datasets.dataset_id"), index=True)
+    invoice: Mapped[str] = mapped_column(String(32))
+    customer_id: Mapped[str] = mapped_column(String(64), index=True)
+    invoice_date: Mapped[datetime] = mapped_column(DateTime)
+    amount: Mapped[float] = mapped_column(Float)
+    items: Mapped[float] = mapped_column(Float)
+    is_return: Mapped[bool] = mapped_column(Boolean)
