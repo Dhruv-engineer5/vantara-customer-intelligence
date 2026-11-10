@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import os
+import time
 
 import pandas as pd
 import plotly.express as px
@@ -17,18 +18,42 @@ st.set_page_config(page_title="Vantara Customer Intelligence", layout="wide")
 
 @st.cache_data(ttl=300, show_spinner=False)
 def get(path: str, **params: Any) -> Any:
-    """GET JSON from the API (cached 5 minutes so views load fast)."""
-    r = requests.get(f"{API}{path}", params=params, timeout=30)
-    r.raise_for_status()
-    return r.json()
+    """GET JSON from the API (cached 5 minutes so views load fast).
+
+    Retries brief failures: the free API caps concurrent requests and
+    answers the excess with 503 instead of queueing them.
+    """
+    last: requests.RequestException | None = None
+    for attempt in range(4):
+        try:
+            r = requests.get(f"{API}{path}", params=params, timeout=30)
+            if r.status_code == 503:
+                raise requests.HTTPError("API busy (503)", response=r)
+            r.raise_for_status()
+            return r.json()
+        except requests.RequestException as exc:  # noqa: PERF203
+            last = exc
+            time.sleep(1.5 * (attempt + 1))
+    assert last is not None
+    raise last
 
 
-def api_up() -> bool:
+def api_up(timeout: float = 5) -> bool:
     """True when the API health check passes."""
     try:
-        return requests.get(f"{API}/health", timeout=5).json().get("status") == "ok"
+        return requests.get(f"{API}/health", timeout=timeout).json().get("status") == "ok"
     except Exception:  # noqa: BLE001
         return False
+
+
+def wait_for_api(max_seconds: int = 180) -> bool:
+    """Poll the health endpoint while the free API wakes from sleep."""
+    deadline = time.monotonic() + max_seconds
+    while time.monotonic() < deadline:
+        if api_up(timeout=20):
+            return True
+        time.sleep(3)
+    return False
 
 
 st.title("Vantara Customer Intelligence")
@@ -37,10 +62,19 @@ st.caption(
     "Public UK retail data used for training and demonstration, not live business data."
 )
 if not api_up():
+    with st.spinner(
+        "Waking up the backend. Free hosting sleeps after inactivity, "
+        "so the first load can take about a minute. No need to refresh."
+    ):
+        ready = wait_for_api()
+    if ready:
+        st.rerun()
     st.error(
-        f"The API at {API} is not reachable yet. Wait a few seconds and refresh the page. "
-        "If it persists, check that the api container is running."
+        f"The API at {API} is still not reachable after a few minutes. "
+        "It may be restarting; press Retry or reload the page shortly."
     )
+    if st.button("Retry"):
+        st.rerun()
     st.stop()
 
 view = st.sidebar.radio(
