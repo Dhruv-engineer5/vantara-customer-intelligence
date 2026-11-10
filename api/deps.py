@@ -14,7 +14,7 @@ from sqlalchemy.engine import Engine
 from src.db.session import make_engine, seed_if_empty
 from src.explainability.explain import make_explainer, make_lime
 from src.features.build import FEATURE_COLUMNS
-from src.models.deep import AutoEncoder, recon_error
+from src.models.ae_serve import NumpyAutoEncoder, recon_error
 from src.utils.config import database_url, load_config, rpath
 
 
@@ -47,12 +47,8 @@ def load_state(engine: Engine | None = None) -> State:
     churn = joblib.load(art / "churn_model.joblib")
     meta = json.loads((art / "metadata.json").read_text())
     table = pd.read_parquet(rpath(cfg, "features"))
-    import torch
-
     ae_meta = joblib.load(art / "autoencoder_meta.joblib")
-    ae = AutoEncoder(len(ae_meta["cols"]), cfg["models"]["deep"]["ae_latent"])
-    ae.load_state_dict(torch.load(art / "autoencoder.pt", weights_only=True))
-    ae.eval()
+    ae = NumpyAutoEncoder(art / "autoencoder_weights.json")
     return State(
         cfg=cfg,
         engine=engine,
