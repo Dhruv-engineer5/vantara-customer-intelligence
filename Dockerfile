@@ -9,9 +9,10 @@ RUN apt-get update \
 WORKDIR /app
 
 # CPU-only PyTorch first (small, no GPU needed), then everything else from requirements.txt
-RUN pip install torch --index-url https://download.pytorch.org/whl/cpu
-COPY requirements.txt .
-RUN pip install -r requirements.txt
+# Deployment image: torch is not needed at serving time (autoencoder inference
+# runs in NumPy via src/models/ae_serve.py; see README "Deployment").
+COPY requirements-deploy.txt .
+RUN pip install -r requirements-deploy.txt
 
 COPY . .
 
