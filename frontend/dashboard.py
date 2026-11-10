@@ -4,8 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
+import base64
+import hashlib
 import os
+import secrets
 import time
+import urllib.parse
 
 import pandas as pd
 import plotly.express as px
@@ -25,6 +29,71 @@ def _sb(path: str, payload: dict) -> requests.Response:
     return requests.post(
         f"{SUPABASE_URL}/auth/v1/{path}", json=payload, headers={"apikey": SUPABASE_ANON_KEY}, timeout=30
     )
+
+
+DASHBOARD_URL = os.environ.get("DASHBOARD_URL", "").rstrip("/")
+
+# Email/password sign-in stays hidden until real email delivery is configured
+# (Supabase's default SMTP only mails project team members). Flip on for
+# controlled testing with EMAIL_AUTH_ENABLED=true.
+EMAIL_AUTH_ON = os.environ.get("EMAIL_AUTH_ENABLED", "").lower() in ("1", "true", "yes")
+
+# Short-lived server-side store of PKCE verifiers for in-flight OAuth sign-ins.
+# Keyed by a random nonce carried in the redirect URL; entries are used once and
+# expire after 10 minutes. Nothing here survives a restart, which is fine: an
+# interrupted sign-in just starts over.
+_PKCE: dict[str, tuple[str, float]] = {}
+
+
+def _oauth_url(provider: str) -> str:
+    """Build the Supabase authorize URL for a social provider (PKCE flow)."""
+    verifier = base64.urlsafe_b64encode(os.urandom(32)).rstrip(b"=").decode()
+    challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+    nonce = secrets.token_urlsafe(18)
+    _PKCE[nonce] = (verifier, time.time() + 600)
+    for k in [k for k, (_, exp) in _PKCE.items() if exp < time.time()]:
+        del _PKCE[k]
+    redirect = f"{DASHBOARD_URL}/?s={nonce}"
+    params = {
+        "provider": provider,
+        "redirect_to": redirect,
+        "flow_type": "pkce",
+        "code_challenge": challenge,
+        "code_challenge_method": "s256",
+    }
+    return f"{SUPABASE_URL}/auth/v1/authorize?{urllib.parse.urlencode(params)}"
+
+
+def _handle_oauth_callback() -> None:
+    """Exchange a Supabase OAuth PKCE callback (?code=...) for a stored session."""
+    code = st.query_params.get("code")
+    nonce = st.query_params.get("s")
+    error = st.query_params.get("error_description") or st.query_params.get("error")
+    if error:
+        st.query_params.clear()
+        st.sidebar.error(f"Sign-in was not completed: {error}")
+        return
+    if not code:
+        return
+    entry = _PKCE.pop(nonce, None) if nonce else None
+    st.query_params.clear()
+    if not entry or entry[1] < time.time():
+        st.sidebar.error("That sign-in attempt expired. Please try again.")
+        return
+    r = requests.post(
+        f"{SUPABASE_URL}/auth/v1/token?grant_type=pkce",
+        json={"auth_code": code, "code_verifier": entry[0]},
+        headers={"apikey": SUPABASE_ANON_KEY},
+        timeout=30,
+    )
+    if r.status_code == 200 and r.json().get("access_token"):
+        user = r.json().get("user") or {}
+        meta = user.get("user_metadata") or {}
+        name = user.get("email") or meta.get("user_name") or meta.get("name") or "GitHub user"
+        _store_session(r.json(), name)
+        st.rerun()
+    else:
+        st.sidebar.error("GitHub sign-in failed. Please try again.")
 
 
 def _store_session(data: dict, email: str) -> None:
@@ -101,6 +170,9 @@ def wait_for_api(max_seconds: int = 180) -> bool:
     return False
 
 
+if AUTH_ON:
+    _handle_oauth_callback()
+
 st.title("Vantara Customer Intelligence")
 st.caption(
     "Churn risk, 90-day value and segments for the Online Retail II customer base. "
@@ -126,12 +198,25 @@ st.sidebar.title("Account")
 if not AUTH_ON:
     st.sidebar.caption("Sign-in is not configured on this deployment.")
 elif "sb" not in st.session_state:
-    with st.sidebar.form("signin"):
-        email = st.text_input("Email")
-        password = st.text_input("Password", type="password")
-        in_, up_ = st.columns(2)
-        do_in = in_.form_submit_button("Sign in")
-        do_up = up_.form_submit_button("Create account")
+    if DASHBOARD_URL:
+        st.sidebar.link_button(
+            "Continue with GitHub", _oauth_url("github"), type="primary", use_container_width=True
+        )
+        st.sidebar.caption("Uses your GitHub account. We never see or store your GitHub password.")
+    if EMAIL_AUTH_ON:
+        _form_parent = st.sidebar.expander("Use email instead") if DASHBOARD_URL else st.sidebar
+    else:
+        _form_parent = None
+    if _form_parent is None:
+        do_in = do_up = False
+        email = password = ""
+    else:
+        with _form_parent.form("signin"):
+            email = st.text_input("Email")
+            password = st.text_input("Password", type="password")
+            in_, up_ = st.columns(2)
+            do_in = in_.form_submit_button("Sign in")
+            do_up = up_.form_submit_button("Create account")
     if do_in or do_up:
         if not email or len(password) < 8:
             st.sidebar.error("Enter an email and a password of at least 8 characters.")
@@ -149,6 +234,14 @@ elif "sb" not in st.session_state:
 else:
     st.sidebar.write(f"Signed in as **{st.session_state.sb['email']}**")
     if st.sidebar.button("Sign out"):
+        try:
+            requests.post(
+                f"{SUPABASE_URL}/auth/v1/logout",
+                headers={"apikey": SUPABASE_ANON_KEY, "Authorization": f"Bearer {st.session_state.sb['access_token']}"},
+                timeout=10,
+            )
+        except Exception:  # noqa: BLE001 - local sign-out must still complete
+            pass
         del st.session_state.sb
         st.cache_data.clear()
         st.rerun()
