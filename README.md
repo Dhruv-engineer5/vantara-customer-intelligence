@@ -112,3 +112,15 @@ ruff check . && black --check .
 - Round-three fixes: thresholds and windows moved into `config/config.yaml`, `MODEL_ARTIFACTS_DIR` environment variable for artifact paths, ruff-enforced docstrings, 5-fold CV for the timing and category models (`cv_extra` in `models_artifacts/metadata.json`), `/segments` split into `predicted_*` and `observed_*` columns, `clv_total_projected` back to the brief's plain historical + predicted. See `docs/BRIEF_TRACEABILITY.md`.
 - Fresh-install check: a brand-new Python 3.10 virtual environment on Linux installed `requirements.txt` (after the CPU build of PyTorch) and ran the 62 tests and the API and dashboard. That check found and fixed a real bug: `pyyaml==5.4.1` cannot be built on current toolchains, so it is now `pyyaml==6.0.2`. Docker check (November 8, 2026): on Windows 11 Home with Docker Desktop 4.98.0, a fresh extraction of the delivered November 7 ZIP (this revision additionally changes the leaderboard heading text, batch-PDF number formatting, one dependency pin and documentation; the Docker-related files the run exercised are unchanged) with a new `.env` from `scripts/setup_env.ps1` ran `docker compose up --build`; all three containers came up healthy, the API seeded PostgreSQL and answered requests, the dashboard rendered all six views, batch CSV scoring matched single-customer scores, and PDF export worked. Not yet exercised under Docker: the `/docs` page and data persistence across a container restart.
 - Known limits: churn AUC and CLV R2 targets are not met; per-customer LSTM timing/category predictions are batch research outputs, not served by the API.
+
+## Deployment (free-tier serving)
+
+The public demo deployment serves the trained autoencoder's inference in NumPy
+(`src/models/ae_serve.py`, weights in `models_artifacts/autoencoder_weights.json`)
+instead of importing torch at serving time. Training is unchanged and still uses
+torch (`src/models/deep.py`); this only shrinks the serving container so the API
+fits a 512 MB free instance (measured ~476 MB under SHAP/LIME/predict load with
+`uvicorn --limit-concurrency 2`, vs ~625 MB with torch). Outputs are validated
+against the torch model before deploy: anomaly flags match on all 5,248 scored
+customers. The deployment image installs `requirements-deploy.txt`
+(= `requirements.txt` without torch). Weights: `models_artifacts/autoencoder_weights.json`.
