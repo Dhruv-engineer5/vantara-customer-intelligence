@@ -124,3 +124,36 @@ fits a 512 MB free instance (measured ~476 MB under SHAP/LIME/predict load with
 against the torch model before deploy: anomaly flags match on all 5,248 scored
 customers. The deployment image installs `requirements-deploy.txt`
 (= `requirements.txt` without torch). Weights: `models_artifacts/autoencoder_weights.json`.
+## Multi-user mode (login + private workspaces)
+
+The deployed app can run multi-user on top of Supabase Auth (free tier):
+
+- Sign-in is GitHub OAuth (PKCE flow). Supabase manages identity and sessions;
+  the app never sees GitHub passwords. Email + password exists in code but is
+  hidden until real email delivery is configured (Supabase's built-in SMTP only
+  mails project team members); enable for controlled tests with
+  `EMAIL_AUTH_ENABLED=true`.
+- Each user gets a private workspace: customers, uploads, segments and
+  analytics are stored with that user's id and are invisible to other users.
+  The API enforces ownership on every route (queries filter by the caller's
+  `user_id`; cross-user ids return 404).
+- New accounts start with the same sample dataset as the public demo so the
+  dashboard is populated immediately.
+- Users can upload their own CSV if it matches the expected schema (same
+  columns as the sample data). Limits: 5 MB / 50,000 rows per file, 3 datasets
+  per user, and a global cap of 1,000,000 stored rows so the free database
+  cannot be exhausted.
+
+Auth verification: the API validates Supabase access tokens against the
+project's JWKS endpoint (`<SUPABASE_URL>/auth/v1/.well-known/jwks.json`),
+checking signature (ES256/RS256), issuer, audience and expiry. A local
+test-only shared secret exists solely for the automated test suite and is
+inert whenever `SUPABASE_URL` is configured.
+
+Required environment variables (API + dashboard): `SUPABASE_URL`,
+`SUPABASE_ANON_KEY`, `SUPABASE_JWT_AUD` (default `authenticated`), and for the
+dashboard `DASHBOARD_URL` (its own public URL, used as the OAuth redirect
+target; register it under Supabase Auth > URL Configuration).
+The dashboard also uses the anon key client-side for the Supabase JS auth
+flow. Without these variables the app runs in the original single-user demo
+mode.

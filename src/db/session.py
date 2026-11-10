@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
+import concurrent.futures  # noqa: F401  (kept for future async probes)
 import hashlib
 import json
+import re
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -23,16 +26,65 @@ from src.utils.logging_setup import get_logger
 log = get_logger(__name__)
 
 
-def make_engine(url: str, retries: int = 30, wait: float = 2.0) -> Engine:
-    """Create an engine and wait until the database accepts connections."""
-    engine = create_engine(url, pool_pre_ping=True, future=True)
-    for attempt in range(retries):
+class _ProbeTimeout(Exception):
+    """A single connection probe exceeded its hard wall-clock bound."""
+
+
+def _scrub(exc: BaseException) -> str:
+    """First line of the error with host/user/IP details redacted (no DSN parts in logs)."""
+    msg = (str(exc).splitlines() or [""])[0]
+    msg = re.sub(r'"[^"]*"', '"..."', msg)
+    msg = re.sub(r"user '\S+'", "user '...'", msg)
+    return msg[:160]
+
+
+def _probe(engine: Engine, hard_timeout: float) -> None:
+    """One bounded connect+SELECT 1. Runs in a daemon thread so a wedged libpq call
+    (e.g. a pooler holding the session while a compute wakes, which libpq's
+    connect_timeout does not reliably bound) cannot hang startup forever."""
+    err: dict[str, BaseException] = {}
+
+    def _do() -> None:
         try:
             with engine.connect() as c:
                 c.execute(text("SELECT 1"))
+        except BaseException as exc:  # noqa: BLE001
+            err["e"] = exc
+
+    t = threading.Thread(target=_do, daemon=True)
+    t.start()
+    t.join(hard_timeout)
+    if t.is_alive():
+        raise _ProbeTimeout(f"probe exceeded {hard_timeout:.0f}s")
+    if "e" in err:
+        raise err["e"]
+
+
+def make_engine(url: str, retries: int = 12, wait: float = 2.5, connect_timeout: float = 6.0,
+                hard_timeout: float = 15.0) -> Engine:
+    """Create an engine and wait until the database accepts connections.
+
+    connect_timeout bounds the libpq socket phase of each attempt; hard_timeout
+    bounds the whole probe (connect + SELECT 1) wall-clock, because a wedged
+    connection (e.g. a pooler holding the session while a compute wakes) can
+    otherwise hang the process forever so the service never binds its port.
+    """
+    kwargs: dict[str, Any] = {"pool_pre_ping": True, "future": True}
+    if url.startswith("postgresql"):
+        kwargs["connect_args"] = {"connect_timeout": int(connect_timeout)}
+    engine = create_engine(url, **kwargs)
+    t0 = time.monotonic()
+    for attempt in range(retries):
+        try:
+            _probe(engine, hard_timeout)
+            log.info("database ready attempt=%d after=%.1fs", attempt + 1, time.monotonic() - t0)
             return engine
         except Exception as exc:  # noqa: BLE001
-            log.warning("database not ready attempt=%d err=%s", attempt + 1, type(exc).__name__)
+            pgcode = getattr(getattr(exc, "orig", None), "pgcode", None) or getattr(exc, "pgcode", None)
+            log.warning(
+                "database not ready attempt=%d err=%s pgcode=%s detail=%s",
+                attempt + 1, type(exc).__name__, pgcode, _scrub(exc),
+            )
             time.sleep(wait)
     raise RuntimeError("database unreachable")
 
@@ -123,12 +175,16 @@ def seed_if_empty(engine: Engine, cfg: dict | None = None) -> bool:
     prediction_history under their score run, then customer features, predictions and segments are upserted.
     """
     cfg = cfg or load_config()
+    log.info("schema init start")
     Base.metadata.create_all(engine)
+    log.info("schema init done")
     with Session(engine) as s:
         empty = not s.scalar(select(func.count()).select_from(Customer))
     if empty:
+        log.info("seed start")
         _load_all(engine, cfg)
         return True
+    log.info("seed refresh start")
     return refresh_scores(engine, cfg)
 
 

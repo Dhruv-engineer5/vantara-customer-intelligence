@@ -1,0 +1,4 @@
+[server]
+# Match the API upload cap (MAX_FILE_BYTES = 5 MB) so the widget does not
+# invite files the server will reject. Default is 200 MB.
+maxUploadSize = 5

@@ -1,4 +1,8 @@
-"""Customer lookup, leaderboard, explanation and segment endpoints."""
+"""Customer lookup, leaderboard, explanation and segment endpoints.
+
+Every read accepts `?dataset=` (default "sample"): the public demo workspace, or one of the
+signed-in user's uploaded datasets (see api.tenant for the authorization rule).
+"""
 
 from __future__ import annotations
 
@@ -10,7 +14,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from api.deps import risk_level
-from src.db.models import Customer, Prediction, Segment
+from api.tenant import SAMPLE, Ctx, resolve, user_base, user_row
+from src.db.models import Customer, Prediction, Segment, UserCustomer, UserDataset, UserPrediction, UserSegment
 from src.explainability.explain import explain_row, lime_row
 from src.features.build import FEATURE_COLUMNS
 
@@ -23,7 +28,7 @@ def _row(c: Customer, p: Prediction, s: Segment) -> dict:
         "country": c.country,
         "recency_days": c.recency_days,
         "frequency": c.frequency,
-        "monetary_total": round(c.monetary_total, 2),
+        "monetary_total": c.monetary_total,
         "clv_historical": round(c.clv_historical, 2),
         "engagement_score": round(c.engagement_score, 1),
         "churn_probability": round(p.churn_probability, 4),
@@ -52,25 +57,43 @@ def list_customers(
     country: str | None = None,
     value_tier: str | None = Query(None, pattern="^(high|medium|low)$"),
     risk: str | None = Query(None, pattern="^(high|moderate|low)$"),
-    customer_id: int | None = None,
+    customer_id: str | None = None,
     limit: int = Query(200, ge=1, le=6000),
+    dataset: str = Query(SAMPLE),
 ) -> list[dict]:
     """Filterable customer table (segment, country, value tier, risk level, id)."""
-    q = _base()
-    if segment:
-        q = q.where(Segment.segment_name == segment)
-    if country:
-        q = q.where(Customer.country == country)
-    if customer_id is not None:
-        q = q.where(Customer.customer_id == customer_id)
-    if risk:
-        lo, hi = {"high": (0.7, 1.01), "moderate": (0.4, 0.7), "low": (0.0, 0.4)}[risk]
-        q = q.where(Prediction.churn_probability >= lo, Prediction.churn_probability < hi)
-    with Session(request.app.state.s.engine) as sess:
-        rows = [_row(*r) for r in sess.execute(q.order_by(Customer.customer_id)).all()]
-    if value_tier:  # tiers are terciles of historical CLV across all customers
+    ctx = resolve(request, dataset)
+    if ctx.sample:
+        q = _base()
+        if segment:
+            q = q.where(Segment.segment_name == segment)
+        if country:
+            q = q.where(Customer.country == country)
+        if customer_id is not None:
+            q = q.where(Customer.customer_id == int(customer_id))
+        if risk:
+            lo, hi = {"high": (0.7, 1.01), "moderate": (0.4, 0.7), "low": (0.0, 0.4)}[risk]
+            q = q.where(Prediction.churn_probability >= lo, Prediction.churn_probability < hi)
         with Session(request.app.state.s.engine) as sess:
-            allv = np.array([v for (v,) in sess.execute(select(Customer.clv_historical)).all()])
+            rows = [_row(*r) for r in sess.execute(q.order_by(Customer.customer_id)).all()]
+        allv_sql = select(Customer.clv_historical)
+    else:
+        q = user_base(ctx)
+        if segment:
+            q = q.where(UserSegment.segment_name == segment)
+        if country:
+            q = q.where(UserCustomer.country == country)
+        if customer_id is not None:
+            q = q.where(UserCustomer.customer_id == customer_id)
+        if risk:
+            lo, hi = {"high": (0.7, 1.01), "moderate": (0.4, 0.7), "low": (0.0, 0.4)}[risk]
+            q = q.where(UserPrediction.churn_probability >= lo, UserPrediction.churn_probability < hi)
+        with Session(request.app.state.s.engine) as sess:
+            rows = [user_row(*r) for r in sess.execute(q.order_by(UserCustomer.customer_id)).all()]
+        allv_sql = select(UserCustomer.clv_historical).where(UserCustomer.dataset_id == ctx.dataset_id)
+    if value_tier:  # tiers are terciles of historical CLV across the workspace's customers
+        with Session(request.app.state.s.engine) as sess:
+            allv = np.array([v for (v,) in sess.execute(allv_sql).all()])
         lo_q, hi_q = np.quantile(allv, [1 / 3, 2 / 3])
         pick = {"high": lambda v: v >= hi_q, "medium": lambda v: lo_q <= v < hi_q, "low": lambda v: v < lo_q}[
             value_tier
@@ -80,46 +103,61 @@ def list_customers(
 
 
 @router.get("/customers/leaderboard")
-def leaderboard(request: Request, n: int = Query(25, ge=1, le=200)) -> list[dict]:
+def leaderboard(request: Request, n: int = Query(25, ge=1, le=200), dataset: str = Query(SAMPLE)) -> list[dict]:
     """Churn leaderboard ranked by value at risk (churn probability x historical CLV)."""
+    ctx = resolve(request, dataset)
     with Session(request.app.state.s.engine) as sess:
-        rows = [_row(*r) for r in sess.execute(_base()).all()]
+        rows = [_row(*r) for r in sess.execute(_base()).all()] if ctx.sample else [
+            user_row(*r) for r in sess.execute(user_base(ctx)).all()
+        ]
     for r in rows:
         r["value_at_risk"] = round(r["churn_probability"] * max(r["clv_historical"], 0), 2)
     return sorted(rows, key=lambda r: -r["value_at_risk"])[:n]
 
 
+def _customer_features(request: Request, ctx: Ctx, customer_id: str) -> tuple[Any, np.ndarray]:
+    """The customer row and its model feature vector, from whichever workspace is scoped."""
+    st = request.app.state.s
+    if ctx.sample:
+        with Session(st.engine) as sess:
+            c = sess.get(Customer, int(customer_id))
+    else:
+        with Session(st.engine) as sess:
+            c = sess.get(UserCustomer, (ctx.dataset_id, customer_id))
+    if c is None:
+        raise HTTPException(404, f"customer {customer_id} not found")
+    return c, np.array([c.features[f] for f in FEATURE_COLUMNS], dtype=float)
+
+
 @router.get("/customers/{customer_id}")
-def get_customer(request: Request, customer_id: int) -> dict:
+def get_customer(request: Request, customer_id: str, dataset: str = Query(SAMPLE)) -> dict:
     """One customer with stored prediction and segment."""
+    ctx = resolve(request, dataset)
     with Session(request.app.state.s.engine) as sess:
-        r = sess.execute(_base().where(Customer.customer_id == customer_id)).first()
+        if ctx.sample:
+            r = sess.execute(_base().where(Customer.customer_id == int(customer_id))).first()
+        else:
+            r = sess.execute(user_base(ctx).where(UserCustomer.customer_id == customer_id)).first()
     if not r:
         raise HTTPException(404, f"customer {customer_id} not found")
-    return _row(*r)
+    return _row(*r) if ctx.sample else user_row(*r)
 
 
 @router.get("/customers/{customer_id}/explain")
-def explain_customer(request: Request, customer_id: int) -> dict:
+def explain_customer(request: Request, customer_id: str, dataset: str = Query(SAMPLE)) -> dict:
     """SHAP factors and a plain-language sentence for one customer."""
     st = request.app.state.s
-    with Session(st.engine) as sess:
-        c = sess.get(Customer, customer_id)
-    if c is None:
-        raise HTTPException(404, f"customer {customer_id} not found")
-    x = np.array([c.features[f] for f in FEATURE_COLUMNS], dtype=float)
+    ctx = resolve(request, dataset)
+    _, x = _customer_features(request, ctx, customer_id)
     return {"customer_id": customer_id, **explain_row(st.churn_model, x, st.explainer)}
 
 
 @router.get("/customers/{customer_id}/explain/lime")
-def explain_customer_lime(request: Request, customer_id: int) -> dict:
+def explain_customer_lime(request: Request, customer_id: str, dataset: str = Query(SAMPLE)) -> dict:
     """LIME local explanation for one customer, next to the SHAP top factors for comparison."""
     st = request.app.state.s
-    with Session(st.engine) as sess:
-        c = sess.get(Customer, customer_id)
-    if c is None:
-        raise HTTPException(404, f"customer {customer_id} not found")
-    x = np.array([c.features[f] for f in FEATURE_COLUMNS], dtype=float)
+    ctx = resolve(request, dataset)
+    _, x = _customer_features(request, ctx, customer_id)
     shap_top = explain_row(st.churn_model, x, st.explainer)["top_factors"][:5]
     out = lime_row(st.churn_model, st.lime, x)
     names = [f["feature"] for f in shap_top]
@@ -128,43 +166,111 @@ def explain_customer_lime(request: Request, customer_id: int) -> dict:
 
 
 @router.get("/customers/{customer_id}/recommendations")
-def recommendations(request: Request, customer_id: int, n: int = Query(5, ge=1, le=20)) -> dict:
-    """Top-n products to recommend (item-item co-purchase model fitted on training customers)."""
+def recommendations(
+    request: Request, customer_id: str, n: int = Query(5, ge=1, le=20), dataset: str = Query(SAMPLE)
+) -> dict:
+    """Top-n products to recommend (item-item co-purchase model fitted on the workspace's sales)."""
     st = request.app.state.s
-    if not st.recommender:
-        raise HTTPException(503, "recommender artifact not loaded")
-    bought = st.recommender["customer_products"].get(customer_id)
-    if bought is None:
-        raise HTTPException(404, f"customer {customer_id} not found")
+    ctx = resolve(request, dataset)
     from src.recommend.recommender import recommend_for
 
+    if ctx.sample:
+        if not st.recommender:
+            raise HTTPException(503, "recommender artifact not loaded")
+        reco = st.recommender
+        bought = reco["customer_products"].get(customer_id)
+        if bought is None:
+            try:
+                bought = reco["customer_products"].get(int(customer_id))
+            except ValueError:
+                bought = None
+    else:
+        with Session(st.engine) as sess:
+            reco_json = sess.scalar(select(UserDataset.recommender).where(UserDataset.dataset_id == ctx.dataset_id))
+        reco = reco_json or {}
+        bought = reco.get("customer_products", {}).get(customer_id)
+    if bought is None:
+        raise HTTPException(404, f"customer {customer_id} not found")
     items = [
         {
             "stock_code": code,
-            "description": st.recommender["description"].get(code, ""),
+            "description": reco.get("description", {}).get(code, ""),
             "score": round(score, 4),
         }
-        for code, score in recommend_for(st.recommender, bought, n)
+        for code, score in recommend_for(reco, list(bought), n)
     ]
     return {"customer_id": customer_id, "n_products_bought": len(bought), "recommendations": items}
 
 
 @router.get("/segments")
-def segments(request: Request) -> list[dict]:
-    """Segment profiles: average RFM, predicted_* model outputs and observed_* retrospective outcomes."""
+def segments(request: Request, dataset: str = Query(SAMPLE)) -> list[dict]:
+    """Segment profiles: average RFM and predicted outcomes (plus observed retrospective outcomes on the sample)."""
     import pandas as pd
 
-    from src.utils.config import rpath
-
-    prof = pd.read_csv(rpath(request.app.state.s.cfg, "reports") / "segment_profiles.csv")
-    # The CSV's churn and future_spend are what actually happened after the cutoff (retrospective evaluation labels).
-    prof = prof.rename(columns={"churn": "observed_churn_rate", "future_spend": "observed_future_spend"})
+    ctx = resolve(request, dataset)
     with Session(request.app.state.s.engine) as sess:
+        if ctx.sample:
+            from src.utils.config import rpath
+
+            prof = pd.read_csv(rpath(request.app.state.s.cfg, "reports") / "segment_profiles.csv")
+            # The CSV's churn and future_spend are what actually happened after the cutoff (retrospective labels).
+            prof = prof.rename(columns={"churn": "observed_churn_rate", "future_spend": "observed_future_spend"})
+            rows = sess.execute(
+                select(Segment.segment_id, Prediction.churn_probability, Prediction.clv_predicted).join(
+                    Prediction, Prediction.customer_id == Segment.customer_id
+                )
+            ).all()
+            pred = pd.DataFrame(rows, columns=["segment_id", "predicted_churn_probability", "predicted_clv_90d"])
+            pred = pred.groupby("segment_id").mean().round(3).reset_index()
+            return prof.merge(pred, on="segment_id", how="left").to_dict(orient="records")
         rows = sess.execute(
-            select(Segment.segment_id, Prediction.churn_probability, Prediction.clv_predicted).join(
-                Prediction, Prediction.customer_id == Segment.customer_id
+            select(
+                UserSegment.segment_id,
+                UserSegment.segment_name,
+                UserCustomer.recency_days,
+                UserCustomer.frequency,
+                UserCustomer.monetary_total,
+                UserCustomer.engagement_score,
+                UserPrediction.churn_probability,
+                UserPrediction.clv_predicted,
             )
+            .join(
+                UserCustomer,
+                (UserCustomer.dataset_id == UserSegment.dataset_id)
+                & (UserCustomer.customer_id == UserSegment.customer_id),
+            )
+            .join(
+                UserPrediction,
+                (UserPrediction.dataset_id == UserSegment.dataset_id)
+                & (UserPrediction.customer_id == UserSegment.customer_id),
+            )
+            .where(UserSegment.dataset_id == ctx.dataset_id)
         ).all()
-    pred = pd.DataFrame(rows, columns=["segment_id", "predicted_churn_probability", "predicted_clv_90d"])
-    pred = pred.groupby("segment_id").mean().round(3).reset_index()
-    return prof.merge(pred, on="segment_id", how="left").to_dict(orient="records")
+    df = pd.DataFrame(
+        rows,
+        columns=[
+            "segment_id",
+            "segment_name",
+            "recency_days",
+            "frequency",
+            "monetary_total",
+            "engagement_score",
+            "predicted_churn_probability",
+            "predicted_clv_90d",
+        ],
+    )
+    prof = (
+        df.groupby(["segment_id", "segment_name"])
+        .agg(
+            recency_days=("recency_days", "mean"),
+            frequency=("frequency", "mean"),
+            monetary_total=("monetary_total", "mean"),
+            engagement_score=("engagement_score", "mean"),
+            customers=("segment_name", "size"),
+            predicted_churn_probability=("predicted_churn_probability", "mean"),
+            predicted_clv_90d=("predicted_clv_90d", "mean"),
+        )
+        .round(2)
+        .reset_index()
+    )
+    return prof.to_dict(orient="records")

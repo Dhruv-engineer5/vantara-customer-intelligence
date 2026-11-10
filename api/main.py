@@ -11,7 +11,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
 
 from api.deps import load_state
-from api.routers import analytics, customers, predict
+from api.routers import analytics, customers, datasets, predict
 from src.utils.logging_setup import get_logger
 
 log = get_logger("api")
@@ -53,4 +53,5 @@ async def value_error(_: Request, exc: ValueError) -> JSONResponse:
 
 app.include_router(analytics.router)
 app.include_router(customers.router)
+app.include_router(datasets.router)
 app.include_router(predict.router)
